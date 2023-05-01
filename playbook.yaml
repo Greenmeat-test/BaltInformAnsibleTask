@@ -1,0 +1,100 @@
+- name: Install and configure OpenLDAP
+  hosts: all
+  become: true
+
+  vars:
+    ldap_admin_password: "simplepassword"
+    ldap_domain: "example.com"
+    ldap_organization: "Example Organization"
+    ldap_suffix: "dc=my-domain,dc=com"
+    ldap_users:
+      - name: user1
+        password: "user1_password"
+      - name: user2
+        password: "user2_password"
+    ldap_groups:
+      - name: group1
+        members:
+          - user1
+      - name: group2
+        members:
+          - user2
+
+  tasks:
+    - name: Install python-ldap library
+      become: true
+      apt:
+        name: python3-ldap
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install python-ldap library
+      become: true
+      yum:
+        name: python3-ldap
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install OpenLDAP
+      become: true
+      apt:
+        name:
+        - slapd
+        - ldap-utils
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install OpenLDAP
+      become: true
+      yum:
+        name:
+        - openldap-servers
+        - openldap-clients
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Set admin password
+      debconf:
+        name: slapd
+        question: slapd/password1
+        value: "{{ ldap_admin_password }}"
+        vtype: password
+      when: ansible_os_family == "Debian"
+
+    - name: Set admin password
+      shell: echo "slapd slapd/password1 password {{ ldap_admin_password }}" | debconf-set-selections
+      when: ansible_os_family == "RedHat"
+
+    - name: Configure LDAP domain and organization
+      ldap_entry:
+        dn: "cn=config"
+        objectClass: "olcGlobal"
+        attributes:
+          olcServerID: "1"
+          olcSuffix: "{{ ldap_suffix }}"
+          olcRootDN: "cn=admin,{{ ldap_suffix }}"
+          olcRootPW: "{{ ldap_admin_password }}"
+          olcOrganization: "{{ ldap_organization }}"
+
+    - name: Add LDAP users
+      ldap_entry:
+        dn: "cn={{ item.name }},{{ ldap_suffix }}"
+        objectClass: "inetOrgPerson"
+        attributes:
+          uid: "{{ item.name }}"
+          cn: "{{ item.name }}"
+          sn: "{{ item.name }}"
+          userPassword: "{{ item.password }}"
+        state: present
+      loop: "{{ ldap_users }}"
+
+    - name: Add LDAP groups
+      ldap_entry:
+        dn: "cn={{ item.name }},{{ ldap_suffix }}"
+        objectClass: "posixGroup"
+        attributes:
+          cn: "{{ item.name }}"
+          gidNumber: "{{ loop.index }}"
+          memberUid: "{{ item.members }}"
+        state: present
+      loop: "{{ ldap_groups }}"
